@@ -4,19 +4,19 @@
       <stop stop-color="#111827"/>
       <stop offset="1" stop-color="#0C0A09"/>
     </linearGradient>
-    <linearGradient id="jp" x1="180" y1="40" x2="540" y2="120" gradientUnits="userSpaceOnUse">
+    <linearGradient id="jp" x1="120" y1="20" x2="600" y2="145" gradientUnits="userSpaceOnUse">
       <stop stop-color="#60A5FA"/>
       <stop offset="0.5" stop-color="#C084FC"/>
       <stop offset="1" stop-color="#F472B6"/>
     </linearGradient>
-    <linearGradient id="en" x1="250" y1="120" x2="470" y2="170" gradientUnits="userSpaceOnUse">
+    <linearGradient id="en" x1="220" y1="155" x2="500" y2="205" gradientUnits="userSpaceOnUse">
       <stop stop-color="#34D399"/>
       <stop offset="1" stop-color="#FBBF24"/>
     </linearGradient>
   </defs>
-  <rect width="720" height="220" rx="16" fill="url(#bg)"/>
+  <rect x="0" y="0" width="720" height="220" rx="16" fill="url(#bg)"/>
   <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="middle">
-    <text x="360" y="95" font-size="72" fill="url(#jp)" letter-spacing="2">スキロ</text>
-    <text x="360" y="145" font-size="34" fill="url(#en)" letter-spacing="8">S U K I R O</text>
+    <text x="360" y="128" font-size="132" fill="url(#jp)" letter-spacing="1">スキロ</text>
+    <text x="360" y="198" font-size="28" fill="url(#en)" letter-spacing="8">S U K I R O</text>
   </g>
 </svg>

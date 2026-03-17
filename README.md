@@ -1,7 +1,7 @@
 # sukiro
 
 <p align="center">
-  <img alt="Sukiro logo" src="assets/branding/logo.svg" width="420" />
+  <img alt="Sukiro logo" src="assets/branding/logo.svg" width="520" />
 </p>
 
 <p align="center">
