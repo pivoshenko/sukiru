@@ -16,6 +16,18 @@ import (
 	"github.com/pivoshenko/sukiro/internal/syncer"
 )
 
+const sukiroBanner = `
+   _____       _    _             
+  / ____|     | |  (_)            
+ | (___  _   _| | ___ _ __ ___    
+  \___ \| | | | |/ / | '__/ _ \   
+  ____) | |_| |   <| | | | (_) |  
+ |_____/ \__,_|_|\_\_|_|  \___/   
+
+              スキロ
+              sukiro
+`
+
 func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
@@ -50,6 +62,10 @@ func runSync(args []string) {
 	fs.BoolVar(&quiet, "quiet", false, "Quiet output")
 	fs.BoolVar(&jsonOut, "json", false, "Print JSON summary")
 	_ = fs.Parse(args)
+
+	if !quiet && !jsonOut {
+		fmt.Print(sukiroBanner)
+	}
 
 	absCfg, _ := filepath.Abs(cfgPath)
 	cfg, err := config.Load(absCfg)
@@ -109,6 +125,8 @@ func runInstallHooks(args []string) {
 	fs.IntVar(&timeoutSec, "timeout-seconds", 10, "Sync timeout for hook runs")
 	fs.IntVar(&ttlSec, "cache-ttl-seconds", 300, "Skip sync if last run is newer than TTL")
 	_ = fs.Parse(args)
+
+	fmt.Print(sukiroBanner)
 
 	absCfg, _ := filepath.Abs(cfgPath)
 	if _, err := os.Stat(absCfg); err != nil {
