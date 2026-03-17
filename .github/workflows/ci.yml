@@ -13,7 +13,7 @@ jobs:
         go-version: ["1.22.x", "1.23.x"]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go-version }}
       - name: Tidy check
