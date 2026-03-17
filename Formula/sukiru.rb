@@ -1,7 +1,7 @@
-class Sukiro < Formula
+class Sukiru < Formula
   desc "Fast binary CLI to sync AI skills from local and GitHub sources"
-  homepage "https://github.com/pivoshenko/sukiro"
-  url "https://github.com/pivoshenko/sukiro/archive/refs/tags/v0.1.0.tar.gz"
+  homepage "https://github.com/pivoshenko/sukiru"
+  url "https://github.com/pivoshenko/sukiru/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "REPLACE_WITH_RELEASE_SHA256"
   license "MIT"
 
@@ -12,6 +12,6 @@ class Sukiro < Formula
   end
 
   test do
-    assert_match "sukiro", shell_output("#{bin}/sukiro sync --help 2>&1", 0)
+    assert_match "sukiru", shell_output("#{bin}/sukiru sync --help 2>&1", 0)
   end
 end

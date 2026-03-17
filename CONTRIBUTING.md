@@ -1,4 +1,4 @@
-# Contributing to Sukiro
+# Contributing to Sukiru
 
 Thanks for contributing.
 
@@ -17,7 +17,7 @@ cargo build --release
 ## Project structure
 
 - `src/main.rs`: CLI entrypoint + core MVP logic
-- `Formula/sukiro.rb`: Homebrew formula
+- `Formula/sukiru.rb`: Homebrew formula
 - `site/`: project landing page
 
 ## Commit style
