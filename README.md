@@ -6,7 +6,7 @@
 
 <p align="center">
   <img alt="License" src="https://img.shields.io/github/license/pivoshenko/sukiru?style=flat-square&logo=opensourceinitiative&logoColor=white&color=0A6847">
-  <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-black?style=flat-square&logo=rust&logoColor=white&color=B7410E">
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-white?style=flat-square&logo=rust&logoColor=white&labelColor=0A6847&color=0A6847">
   <img alt="Release" src="https://img.shields.io/github/v/release/pivoshenko/sukiru?style=flat-square&logo=github&logoColor=white&color=4856CD&label=Release">
   <img alt="Support Ukraine" src="https://img.shields.io/badge/Support-Ukraine-FFC93C?style=flat-square&labelColor=07689F">
 </p>
