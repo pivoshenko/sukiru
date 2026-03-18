@@ -1,1 +1,3 @@
-include!("../main.rs");
+fn main() -> kasetto::Result<()> {
+    kasetto::run()
+}

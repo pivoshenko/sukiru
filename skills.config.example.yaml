@@ -1,4 +1,8 @@
-destination: ~/.openclaw/workspace/skills
+# Option A: preset destination by agent (codex | claude | cursor)
+agent: codex
+
+# Option B: manual destination (takes precedence if both are set)
+# destination: ~/.openclaw/workspace/skills
 
 skills:
   - source: https://github.com/pivoshenko/pivoshenko.ai
