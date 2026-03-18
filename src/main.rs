@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
+use unicode_width::UnicodeWidthStr;
 use walkdir::WalkDir;
 
 #[derive(Parser)]
@@ -127,17 +128,85 @@ struct Report {
     actions: Vec<Action>,
 }
 
-const BANNER: &str = r#"
-╔════════════════════════════════════════════════════════════╗
-║  ██╗  ██╗ █████╗ ███████╗███████╗████████╗████████╗ ██████╗ ║
-║  ██║ ██╔╝██╔══██╗██╔════╝██╔════╝╚══██╔══╝╚══██╔══╝██╔═══██╗║
-║  █████╔╝ ███████║███████╗█████╗     ██║      ██║   ██║   ██║║
-║  ██╔═██╗ ██╔══██║╚════██║██╔══╝     ██║      ██║   ██║   ██║║
-║  ██║  ██╗██║  ██║███████║███████╗   ██║      ██║   ╚██████╔╝║
-║  ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝   ╚═╝      ╚═╝    ╚═════╝ ║
-║                        カセット  |  kasetto                   ║
-╚════════════════════════════════════════════════════════════╝
-"#;
+const BANNER_TOP: &str = "╔═══════════════════════════════════════════════════════════════╗";
+const BANNER_BOTTOM: &str =
+    "╚═══════════════════════════════════════════════════════════════╝";
+const BANNER_INNER_WIDTH: usize = 63;
+const LOGO_LINES: [&str; 6] = [
+    "  ██╗  ██╗ █████╗ ███████╗███████╗████████╗████████╗ ██████╗   ",
+    "  ██║ ██╔╝██╔══██╗██╔════╝██╔════╝╚══██╔══╝╚══██╔══╝██╔═══██╗  ",
+    "  █████╔╝ ███████║███████╗█████╗     ██║      ██║   ██║   ██║  ",
+    "  ██╔═██╗ ██╔══██║╚════██║██╔══╝     ██║      ██║   ██║   ██║  ",
+    "  ██║  ██╗██║  ██║███████║███████╗   ██║      ██║   ╚██████╔╝  ",
+    "  ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝   ╚═╝      ╚═╝    ╚═════╝   ",
+];
+const JAPANESE_SUBTITLE: &str = "スキル・パッケージ・マネージャー";
+
+fn color_stdout_enabled() -> bool {
+    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+}
+
+fn empty_banner_line() -> String {
+    format!("║{}║", " ".repeat(BANNER_INNER_WIDTH))
+}
+
+fn left_boxed_line(content: &str) -> String {
+    let width = UnicodeWidthStr::width(content);
+    let right_pad = BANNER_INNER_WIDTH.saturating_sub(width);
+    format!("║{}{}║", content, " ".repeat(right_pad))
+}
+
+fn centered_boxed_line(content: &str) -> String {
+    let width = UnicodeWidthStr::width(content);
+    let total_pad = BANNER_INNER_WIDTH.saturating_sub(width);
+    let left_pad = total_pad / 2;
+    let right_pad = total_pad - left_pad;
+    format!(
+        "║{}{}{}║",
+        " ".repeat(left_pad),
+        content,
+        " ".repeat(right_pad)
+    )
+}
+
+fn colorize_content(line: &str, content: &str, color: &str, base: &str) -> String {
+    line.replacen(content, &format!("{color}{content}{base}"), 1)
+}
+
+fn render_banner(use_color: bool) -> String {
+    let mut lines = Vec::new();
+    lines.push(BANNER_TOP.to_string());
+    for logo in LOGO_LINES {
+        lines.push(left_boxed_line(logo));
+    }
+    lines.push(empty_banner_line());
+
+    let subtitle = centered_boxed_line(JAPANESE_SUBTITLE);
+    if use_color {
+        lines.push(colorize_content(
+            &subtitle,
+            JAPANESE_SUBTITLE,
+            "\x1b[90m",
+            "\x1b[95m",
+        ));
+    } else {
+        lines.push(subtitle);
+    }
+
+    lines.push(empty_banner_line());
+
+    lines.push(BANNER_BOTTOM.to_string());
+    let body = lines.join("\n");
+    if use_color {
+        format!("\x1b[95m{}\x1b[0m\n", body)
+    } else {
+        format!("{}\n", body)
+    }
+}
+
+fn print_banner() {
+    print!("{}", render_banner(color_stdout_enabled()));
+}
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -201,7 +270,7 @@ fn run_sync(
         if plain {
             println!("kasetto | カセット");
         } else {
-            print!("{}", BANNER);
+            print_banner();
         }
     }
 
@@ -465,7 +534,7 @@ fn status_chip(status: &str, plain: bool) -> String {
 }
 
 fn install_hooks(config_path: &str, timeout: u64, ttl: u64) -> Result<()> {
-    print!("{}", BANNER);
+    print_banner();
     let (_cfg, _cfg_dir, cfg_label) = load_config_any(config_path)?;
     let home = dirs_home()?;
     let runner_dir = home.join(".kasetto/hooks");

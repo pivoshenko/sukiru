@@ -9,9 +9,11 @@ class Kasetto < Formula
 
   def install
     system "cargo", "install", *std_cargo_args(path: ".")
+    bin.install_symlink "kasetto" => "kst" unless (bin/"kst").exist?
   end
 
   test do
     assert_match "kasetto", shell_output("#{bin}/kasetto sync --help 2>&1", 0)
+    assert_match "sync", shell_output("#{bin}/kst sync --help 2>&1", 0)
   end
 end
