@@ -9,74 +9,40 @@
 </p>
 
 - [Overview](#overview)
-- [Alternatives and why Kasetto](#alternatives-and-why-kasetto)
-  - [Compared to Vercel Skills](#compared-to-vercel-skills)
-  - [Compared to Claude Plugins](#compared-to-claude-plugins)
 - [Features](#features)
 - [Install](#install)
 - [Quick Start](#quick-start)
-- [Remote Config over HTTPS](#remote-config-over-https)
 - [Commands](#commands)
   - [`sync`](#sync)
   - [`list`](#list)
   - [`doctor`](#doctor)
-- [Supported Agents](#supported-agents)
 - [Configuration](#configuration)
-- [Storage Model](#storage-model)
+- [Supported Agents](#supported-agents)
 - [Common Workflows](#common-workflows)
-  - [Team bootstrap from remote config](#team-bootstrap-from-remote-config)
-  - [Local experimental pack](#local-experimental-pack)
-  - [Multi-source curated stack](#multi-source-curated-stack)
+- [Storage Model](#storage-model)
+- [Why Kasetto](#why-kasetto)
+  - [Compared to Vercel Skills](#compared-to-vercel-skills)
+  - [Compared to Claude Plugins](#compared-to-claude-plugins)
 - [License](#license)
 
 ## Overview
 
-`kasetto` is a fast CLI skill package manager for AI coding agents.
+`kasetto` is a CLI for managing skill packs for AI coding agents.
 
-It syncs skill sets from repositories into local agent skill folders, tracks state in a local manifest DB, and provides diagnostics via `doctor`.
+It pulls skills from repositories or local folders, installs them into the right agent directory, tracks what is installed in a local manifest database, and gives you a `doctor` command when something looks off.
 
-`Kasetto` comes from the Japanese word **カセット** (*kasetto*), which means **cassette**.
-
-The idea is the same as old music players: you can prepare a bundle, swap bundles quickly, and keep your collection organized.
-
-With Kasetto, each skill source is like a cassette you can insert, sync, and update. Skills stay easy to package, move, and reproduce.
-
-## Alternatives and why Kasetto
-
-There are great alternatives, including:
-- [Vercel Skills](https://github.com/vercel-labs/skills)
-- [Claude Plugins](https://claude.com/plugins)
-
-Kasetto is a better fit when you need **deterministic, repo-driven skill bundle management** across environments.
-
-### Compared to Vercel Skills
-
-Vercel Skills gives a strong curated catalog and easy install flow.
-Kasetto is better when you need:
-- multi-source sync in one config
-- reproducible team bootstrap from a versioned YAML file
-- stateful install tracking (`~/.kst/manifest.db`) and diagnostics (`doctor`)
-- destination targeting across many agent environments with one preset field
-
-### Compared to Claude Plugins
-
-Claude Plugins are excellent for in-product integrations and runtime capabilities inside Claude.
-Kasetto is better when you need:
-- agent-agnostic skill bundle distribution from Git/local sources
-- repository-native workflow (no plugin marketplace dependency)
-- predictable sync/update/remove lifecycle with dry-run support
-- CLI-first ops that can be scripted in CI or bootstrap scripts
+The name comes from the Japanese word **カセット** (*kasetto*), meaning **cassette**. That is the mental model: each skill source is a cassette you can plug in, swap out, and keep organized.
 
 ## Features
 
-- Fast sync/install/update/remove workflow for skills
-- Config-driven setup with local file or remote URL config
-- Destination presets for a broad set of supported agent CLIs
-- Interactive `list` browser (arrow keys + vim keys)
-- Manifest-backed state (`~/.kst/manifest.db`) with run reports
-- `doctor` diagnostics for version, paths, last sync, and failed skills
-- Styled output and `--json` modes for automation
-- Alias binary: `kst` (same behavior as `kasetto`)
+- Sync skills from GitHub or local directories
+- Use either a local YAML file or a remote HTTPS config
+- Target many agent CLIs through built-in destination presets
+- Browse installed skills in an interactive `list` UI
+- Track installs and sync reports in `~/.kst/manifest.db`
+- Run `doctor` to inspect paths, version, and recent sync failures
+- Use `--json` output for scripting and automation
+- Run the same binary as `kasetto` or `kst`
 
 ## Install
 
@@ -84,9 +50,11 @@ TBA
 
 ## Quick Start
 
-1. Create config file:
+Create a config file:
+
 ```yaml
 agent: codex
+
 skills:
   - source: https://github.com/pivoshenko/pivoshenko.ai
     skills:
@@ -94,83 +62,110 @@ skills:
       - name: skill-creator
 ```
 
-2. Sync skills:
+Sync the configured skills:
+
 ```bash
 kasetto sync --config skills.config.yaml
 ```
 
-Or use a remote config directly over HTTPS:
+You can also point `--config` at an HTTPS URL:
+
 ```bash
 kasetto sync --config https://example.com/skills.config.yaml
 ```
 
-3. Browse installed skills:
+Then inspect what is installed:
+
 ```bash
 kasetto list
-```
-
-4. Run diagnostics:
-```bash
 kasetto doctor
 ```
-
-## Remote Config over HTTPS
-
-You can run Kasetto without a local config file by passing an HTTPS URL:
-
-```bash
-kasetto sync --config https://example.com/skills.config.yaml
-```
-
-This is useful when:
-- sharing one canonical config across a team
-- bootstrapping new machines quickly
-- pinning startup flow to a centrally managed config
 
 ## Commands
 
 ### `sync`
-Sync configured skills into destination directory.
+
+Reads the config, discovers the requested skills, and makes the destination match it.
 
 ```bash
 kasetto sync [--config <path-or-url>] [--dry-run] [--quiet] [--json] [--plain] [--verbose]
 ```
 
 Notes:
-- `--config` supports local path or HTTP(S) URL
-- `--dry-run` previews changes without writing
-- Missing skills are reported as broken (non-fatal)
-- Exit code is non-zero only for source-level failures
+- `--config` accepts a local file path or an HTTP(S) URL
+- `--dry-run` shows planned changes without writing files
+- missing skills are reported as broken, but do not stop the whole run
+- the exit code is non-zero only for source-level failures
 
 ### `list`
-List installed skills from manifest DB.
+
+Shows skills currently tracked in the manifest database.
 
 ```bash
 kasetto list [--json]
 ```
 
 Notes:
-- TTY: interactive browser UI
-- Non-TTY: plain list output
-- `NO_TUI=1` disables interactive mode
+- in a TTY, `kasetto list` opens the interactive browser UI
+- outside a TTY, output falls back to a plain list
+- `NO_TUI=1` forces non-interactive output
 
 ### `doctor`
-Show local diagnostics.
+
+Prints local diagnostics for the current Kasetto setup.
 
 ```bash
 kasetto doctor [--json]
 ```
 
 Includes:
-- Version
-- Manifest DB path
-- Installation path
-- Last sync timestamp
-- Failed skills from latest sync report
+- version
+- manifest DB path
+- installation path
+- last sync timestamp
+- failed skills from the latest sync report
+
+## Configuration
+
+Configuration can come from a local file path or an HTTPS URL passed to `--config`.
+
+Top-level keys:
+- `agent` (optional): one of the supported agent presets above
+- `destination` (optional): explicit install path, which overrides `agent`
+- `skills` (required): list of skill sources to sync
+
+Each source entry supports:
+- `source` (required): local path or GitHub URL
+- `branch` (optional): branch for remote source, default `main` with fallback to `master`
+- `skills` (required):
+  - `"*"` to sync every discovered skill
+  - a list of names such as `- my-skill`
+  - a list of objects such as `- name: my-skill`, with optional `path`
+
+Example:
+
+```yaml
+agent: codex
+
+skills:
+  - source: https://github.com/openai/skills
+    branch: main
+    skills:
+      - code-reviewer
+      - name: design-system
+
+  - source: ~/Development/my-skills
+    skills: "*"
+
+  - source: https://github.com/acme/skill-pack
+    skills:
+      - name: custom-skill
+        path: tools/skills
+```
 
 ## Supported Agents
 
-When you set `agent`, Kasetto resolves destination to that agent's global skill folder.
+When you set `agent`, Kasetto resolves the destination automatically.
 
 | Agent          | `agent:` value   | Path                            |
 | -------------- | ---------------- | ------------------------------- |
@@ -218,74 +213,19 @@ When you set `agent`, Kasetto resolves destination to that agent's global skill 
 | Pochi          | `pochi`          | `~/.pochi/skills/`              |
 | AdaL           | `adal`           | `~/.adal/skills/`               |
 
-Legacy compatibility note: `claude` is still accepted as an alias for `claude-code`.
+`claude` is still accepted as a legacy alias for `claude-code`.
 
-When you set `destination`, it overrides `agent` and uses your explicit path.
-
-## Configuration
-
-Configuration can be provided either:
-- as a local file path
-- as an HTTPS URL via `--config`
-
-Top-level keys:
-- `agent` (optional): supported agent preset from the table above
-- `destination` (optional): custom path (takes precedence over `agent`)
-- `skills` (required): list of skill sources
-
-Source entry:
-- `source` (required): local path or GitHub URL
-- `branch` (optional): branch for remote source (default: `main`, fallback `master`)
-- `skills` (required):
-  - `"*"` to sync all discovered skills
-  - list of names: `- my-skill`
-  - list objects: `- name: my-skill` with optional `path` override
-
-Example with mixed sources:
-```yaml
-agent: codex
-
-skills:
-  - source: https://github.com/openai/skills
-    branch: main
-    skills:
-      - code-reviewer
-      - name: design-system
-
-  - source: ~/Development/my-skills
-    skills: "*"
-
-  - source: https://github.com/acme/skill-pack
-    skills:
-      - name: custom-skill
-        path: tools/skills
-```
-
-## Storage Model
-
-Kasetto stores state in SQLite:
-- DB file: `~/.kst/manifest.db`
-- Tables:
-  - `skills`: installed skill state (hash, source, destination, updated_at)
-  - `meta`: general metadata (`last_run`)
-  - `reports`: JSON sync reports per run
-
-This enables:
-- Change detection via hashes
-- Incremental persistence
-- Diagnostics over latest run results
+If you set `destination`, it overrides `agent`.
 
 ## Common Workflows
 
-### Team bootstrap from remote config
+Team bootstrap from a shared config:
 
 ```bash
 kasetto sync --config https://example.com/skills.config.yaml
 ```
 
-Use this when one central config should drive setup for every new machine.
-
-### Local experimental pack
+Local experimentation from a private skill folder:
 
 ```yaml
 skills:
@@ -293,9 +233,7 @@ skills:
     skills: "*"
 ```
 
-Use this when you are iterating quickly on private or draft skills.
-
-### Multi-source curated stack
+Curated bundle from multiple sources:
 
 ```yaml
 agent: codex
@@ -308,7 +246,45 @@ skills:
       - frontend-design
 ```
 
-Use this when you want a single reproducible bundle from different sources.
+## Storage Model
+
+Kasetto stores state in SQLite at `~/.kst/manifest.db`.
+
+Tables:
+- `skills`: installed skill state, including hash, source, destination, and update time
+- `meta`: general metadata such as `last_run`
+- `reports`: JSON sync reports for each run
+
+This makes it possible to:
+- detect changes via hashes
+- persist state incrementally
+- inspect the latest sync results with `doctor`
+
+## Why Kasetto
+
+There are already good options in this space, including [Vercel Skills](https://github.com/vercel-labs/skills) and [Claude Plugins](https://claude.com/plugins).
+
+Kasetto is aimed at a different job: **managing reproducible, repo-driven skill bundles across machines and agent environments**.
+
+### Compared to Vercel Skills
+
+Vercel Skills gives you a curated catalog and a smooth install path.
+
+Kasetto is a better fit when you need:
+- more than one source in a single config
+- a versioned YAML file that can bootstrap a whole team
+- manifest-backed install tracking in `~/.kst/manifest.db`
+- one config field that targets many agent environments
+
+### Compared to Claude Plugins
+
+Claude Plugins are built for runtime integrations inside Claude.
+
+Kasetto is a better fit when you need:
+- skill distribution from Git or local sources
+- a repository-first workflow instead of a marketplace workflow
+- predictable sync, update, and remove behavior
+- a CLI that can be scripted in setup flows or CI
 
 ## License
 
