@@ -1,13 +1,13 @@
 fmt:
-	cargo fmt
+    cargo fmt
 
 lint:
-	cargo clippy -- -D warnings
+    cargo clippy -- -D warnings
 
 test:
-	cargo test
+    cargo test
 
 build:
-	cargo build --release
+    cargo build --release
 
 check: fmt lint test build

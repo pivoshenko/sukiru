@@ -14,7 +14,7 @@ trim_trailing_whitespace = true
 indent_size = 4
 tab_width = 4
 
-[{*.mako,*.py.mako}]
+[{*.rs}]
 indent_size = 4
 tab_width = 4
 

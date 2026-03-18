@@ -1,10 +1,7 @@
 destination: ~/.openclaw/workspace/skills
-skills:
-  - source: ./skills
-    skills: "*"
 
+skills:
   - source: https://github.com/pivoshenko/pivoshenko.ai
-    branch: main
     skills:
       - name: pivoshenko-brand-guidelines
       - name: skill-creator
