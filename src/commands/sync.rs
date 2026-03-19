@@ -20,13 +20,11 @@ pub fn run(
     verbose: bool,
 ) -> Result<()> {
     let animate = animations_enabled(quiet, as_json, plain);
-    if !quiet && !as_json {
-        if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
-            if plain {
-                println!("kasetto | カセット");
-            } else {
-                print_banner();
-            }
+    if !quiet && !as_json && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        if plain {
+            println!("kasetto | カセット");
+        } else {
+            print_banner();
         }
     }
 

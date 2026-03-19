@@ -33,15 +33,13 @@ pub fn run(as_json: bool) -> Result<()> {
     let color = list_color_enabled();
     let animate = animations_enabled(false, as_json, !color);
 
-    if !as_json {
-        if std::io::stdout().is_terminal() {
-            if color {
-                print_banner();
-            } else {
-                println!("kasetto | カセット");
-            }
-            println!();
+    if !as_json && std::io::stdout().is_terminal() {
+        if color {
+            print_banner();
+        } else {
+            println!("kasetto | カセット");
         }
+        println!();
     }
 
     let release = with_spinner(animate, !color, "Checking for updates", || {
