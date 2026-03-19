@@ -19,9 +19,10 @@ main() {
     version="${KASETTO_VERSION:-$(get_latest_version)}"
     install_dir="${KASETTO_INSTALL_DIR:-${HOME}/.local/bin}"
 
-    artifact="kasetto-${platform}-${arch}"
+    target="$(detect_target "${platform}" "${arch}")"
+    artifact="kasetto-${target}.tar.gz"
 
-    log "installing kasetto ${version} (${platform}/${arch})"
+    log "installing kasetto ${version} (${target})"
 
     tmpdir="$(mktemp -d)"
     trap 'rm -rf "${tmpdir}"' EXIT
@@ -30,18 +31,21 @@ main() {
     checksums_url="https://github.com/${REPO}/releases/download/${version}/checksums.txt"
 
     log "downloading ${url}"
-    download "${url}" "${tmpdir}/kasetto"
+    download "${url}" "${tmpdir}/${artifact}"
     download "${checksums_url}" "${tmpdir}/checksums.txt"
 
     log "verifying checksum"
-    verify_checksum "${tmpdir}/kasetto" "${tmpdir}/checksums.txt" "${artifact}"
+    verify_checksum "${tmpdir}/${artifact}" "${tmpdir}/checksums.txt" "${artifact}"
+
+    log "extracting"
+    tar xzf "${tmpdir}/${artifact}" -C "${tmpdir}"
 
     mkdir -p "${install_dir}"
     install -m 755 "${tmpdir}/kasetto" "${install_dir}/kasetto"
-    ln -sf "${install_dir}/kasetto" "${install_dir}/kst"
+    install -m 755 "${tmpdir}/kst" "${install_dir}/kst"
 
     log "installed kasetto to ${install_dir}/kasetto"
-    log "created symlink ${install_dir}/kst"
+    log "installed kst to ${install_dir}/kst"
 
     if ! echo ":${PATH}:" | grep -q ":${install_dir}:"; then
         warn "add ${install_dir} to your PATH:"
@@ -61,9 +65,19 @@ detect_platform() {
 
 detect_arch() {
     case "$(uname -m)" in
-        x86_64 | amd64)  echo "amd64" ;;
-        aarch64 | arm64) echo "arm64" ;;
+        x86_64 | amd64)  echo "x86_64" ;;
+        aarch64 | arm64) echo "aarch64" ;;
         *)               err "unsupported architecture: $(uname -m)" ;;
+    esac
+}
+
+detect_target() {
+    platform="$1"
+    arch="$2"
+    case "${platform}" in
+        darwin) echo "${arch}-apple-darwin" ;;
+        linux)  echo "${arch}-unknown-linux-gnu" ;;
+        *)      err "unsupported platform: ${platform}" ;;
     esac
 }
 
