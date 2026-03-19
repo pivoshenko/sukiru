@@ -1,35 +1,82 @@
 name: Release
 
 on:
-  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: write
 
 jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: kasetto-x86_64-unknown-linux-gnu.tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: kasetto-aarch64-unknown-linux-gnu.tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive: kasetto-x86_64-apple-darwin.tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: kasetto-aarch64-apple-darwin.tar.gz
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package
+        run: |
+          mkdir -p staging
+          cp target/${{ matrix.target }}/release/kasetto staging/
+          cp target/${{ matrix.target }}/release/kst staging/ 2>/dev/null || cp staging/kasetto staging/kst
+          cd staging
+          tar czf ../${{ matrix.archive }} kasetto kst
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+
   release:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          fetch-depth: 0
 
-      - name: Build binaries
-        run: |
-          mkdir -p dist
-          rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-apple-darwin aarch64-apple-darwin
-          cargo build --release --target x86_64-unknown-linux-gnu
-          cargo build --release --target aarch64-unknown-linux-gnu
-          cargo build --release --target x86_64-apple-darwin
-          cargo build --release --target aarch64-apple-darwin
-          cp target/x86_64-unknown-linux-gnu/release/kasetto dist/kasetto-linux-amd64
-          cp target/aarch64-unknown-linux-gnu/release/kasetto dist/kasetto-linux-arm64
-          cp target/x86_64-apple-darwin/release/kasetto dist/kasetto-darwin-amd64
-          cp target/aarch64-apple-darwin/release/kasetto dist/kasetto-darwin-arm64
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Checksums
         run: |
           cd dist
-          sha256sum * > checksums.txt
+          sha256sum *.tar.gz > checksums.txt
 
       - name: Generate changelog
         uses: orhun/git-cliff-action@v4
@@ -37,9 +84,94 @@ jobs:
         with:
           args: --latest --strip header
 
-      - name: Create GitHub Release
+      - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           body: ${{ steps.changelog.outputs.content }}
           files: |
             dist/*
+
+  publish-crate:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish to crates.io
+        run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Update Homebrew formula
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SHA256=$(sha256sum dist/kasetto-aarch64-apple-darwin.tar.gz | cut -d' ' -f1)
+          SHA256_INTEL=$(sha256sum dist/kasetto-x86_64-apple-darwin.tar.gz | cut -d' ' -f1)
+          SHA256_LINUX=$(sha256sum dist/kasetto-x86_64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)
+          SHA256_LINUX_ARM=$(sha256sum dist/kasetto-aarch64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)
+
+          REPO="https://github.com/pivoshenko/kasetto/releases/download/v${VERSION}"
+
+          cat > formula.rb << FORMULA
+          class Kasetto < Formula
+            desc "An extremely fast AI skills manager"
+            homepage "https://github.com/pivoshenko/kasetto"
+            version "${VERSION}"
+            license any_of: ["MIT", "Apache-2.0"]
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "${REPO}/kasetto-aarch64-apple-darwin.tar.gz"
+                sha256 "${SHA256}"
+              else
+                url "${REPO}/kasetto-x86_64-apple-darwin.tar.gz"
+                sha256 "${SHA256_INTEL}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "${REPO}/kasetto-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "${SHA256_LINUX_ARM}"
+              else
+                url "${REPO}/kasetto-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "${SHA256_LINUX}"
+              end
+            end
+
+            def install
+              bin.install "kasetto"
+              bin.install "kst"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/kasetto --version")
+            end
+          end
+          FORMULA
+
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/pivoshenko/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          cp formula.rb tap/Formula/kasetto.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/kasetto.rb
+          git commit -m "kasetto ${VERSION}"
+          git push
