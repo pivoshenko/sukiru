@@ -31,8 +31,15 @@ jobs:
           cd dist
           sha256sum * > checksums.txt
 
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        id: changelog
+        with:
+          args: --latest --strip header
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          body: ${{ steps.changelog.outputs.content }}
           files: |
             dist/*

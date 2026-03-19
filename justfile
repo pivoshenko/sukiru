@@ -10,4 +10,7 @@ test:
 build:
     cargo build --release
 
+changelog:
+    git-cliff --output CHANGELOG.md
+
 check: fmt lint test build
