@@ -1,5 +1,5 @@
 {
-  "buildCommand": "pip install mkdocs-material && mkdocs build",
+  "buildCommand": "python -m venv .venv && . .venv/bin/activate && pip install -r docs/requirements.txt && mkdocs build",
   "outputDirectory": "site",
   "installCommand": "echo 'skip'"
 }

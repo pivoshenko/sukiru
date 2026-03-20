@@ -54,7 +54,7 @@ curl -fsSL https://raw.githubusercontent.com/pivoshenko/kasetto/main/scripts/ins
 
 <div class="kst-feature" markdown>
 
-### Manifest-backed
+### Traceable
 
 </div>
 

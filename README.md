@@ -34,7 +34,7 @@ Kasetto is a **community-first** project that solves a different problem: **decl
 - **Team consistency** - commit a YAML file, everyone gets the same skills.
 - **Multi-source** - pull from multiple GitHub repos and local folders in one config.
 - **Agent-agnostic** - one config field switches between 35+ agent environments.
-- **Manifest-backed** - every install is tracked, diffable, and inspectable.
+- **Traceable** - every install is tracked, diffable, and inspectable.
 - **CI-friendly** - `--json` output and non-zero exit codes for automation.
 
 > Inspired by [uv](https://github.com/astral-sh/uv) - what uv did for Python packages, Kasetto aims to do for AI skills.

@@ -24,3 +24,4 @@ target
 
 # mkdocs build output
 site
+.vercel
