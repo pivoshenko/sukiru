@@ -36,3 +36,7 @@ commit_parsers = [
 filter_commits = false
 tag_pattern = "v[0-9].*"
 sort_commits = "newest"
+
+[bump]
+features_always_bump_minor = true
+breaking_always_bump_major = true

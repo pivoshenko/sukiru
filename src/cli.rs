@@ -1,5 +1,6 @@
 use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{Args, Parser, Subcommand};
+use clap_complete::Shell;
 
 fn cli_styles() -> Styles {
     Styles::styled()
@@ -104,5 +105,14 @@ pub enum Commands {
         #[arg(long)]
         #[arg(help = "print update output as JSON")]
         json: bool,
+    },
+    #[command(
+        about = "Generate shell completions",
+        long_about = "Generate shell completion scripts for kasetto.\n\nThe output is written to stdout so it can be sourced directly or redirected to a file.",
+        after_help = "\x1b[1;35mExamples:\x1b[0m\n  \x1b[90mkasetto completions bash\x1b[0m\n  \x1b[90mkasetto completions zsh\x1b[0m\n  \x1b[90mkasetto completions fish\x1b[0m\n  \x1b[90mkasetto completions powershell\x1b[0m"
+    )]
+    Completions {
+        #[arg(help = "target shell")]
+        shell: Shell,
     },
 }

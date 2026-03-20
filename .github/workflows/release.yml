@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g. 1.0.0)"
-        required: true
+        description: "Version override (leave empty to auto-detect from commits)"
+        required: false
 
 permissions:
   contents: write
@@ -14,24 +14,48 @@ jobs:
   tag:
     runs-on: ubuntu-latest
     outputs:
-      tag: v${{ github.event.inputs.version }}
+      tag: v${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install git-cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          args: --version
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=$(git-cliff --bumped-version)
+            VERSION="${VERSION#v}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "resolved version: ${VERSION}"
 
       - name: Update version
-        run: sed -i "s/^version = .*/version = \"${{ github.event.inputs.version }}\"/" Cargo.toml
+        run: sed -i "s/^version = .*/version = \"${{ steps.version.outputs.version }}\"/" Cargo.toml
 
       - name: Update lockfile
         run: |
           rustup default stable
           cargo update --workspace
 
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          args: --tag v${{ steps.version.outputs.version }} --output CHANGELOG.md
+
       - name: Commit and tag
         run: |
-          VERSION="${{ github.event.inputs.version }}"
+          VERSION="${{ steps.version.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock
+          git add Cargo.toml Cargo.lock CHANGELOG.md
           if ! git diff --cached --quiet; then
             git commit -m "release: v${VERSION}"
           fi
@@ -158,7 +182,8 @@ jobs:
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          VERSION="${{ github.event.inputs.version }}"
+          VERSION="${{ needs.tag.outputs.tag }}"
+          VERSION="${VERSION#v}"
           SHA256=$(sha256sum dist/kasetto-aarch64-apple-darwin.tar.gz | cut -d' ' -f1)
           SHA256_INTEL=$(sha256sum dist/kasetto-x86_64-apple-darwin.tar.gz | cut -d' ' -f1)
           SHA256_LINUX=$(sha256sum dist/kasetto-x86_64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)

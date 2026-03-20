@@ -1,4 +1,5 @@
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::generate;
 use std::path::Path;
 
 use crate::cli::{Cli, Commands, SyncArgs};
@@ -22,6 +23,12 @@ pub fn run() -> Result<()> {
             Commands::List { json } => crate::commands::list::run(json),
             Commands::Doctor { json } => crate::commands::doctor::run(json),
             Commands::SelfUpdate { json } => crate::commands::self_update::run(json),
+            Commands::Completions { shell } => {
+                let mut cmd = Cli::command();
+                let bin = program_name;
+                generate(shell, &mut cmd, bin, &mut std::io::stdout());
+                Ok(())
+            }
         },
         StartupMode::Home => crate::home::run(&program_name, DEFAULT_CONFIG),
     }
