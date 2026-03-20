@@ -70,19 +70,22 @@ When a repository includes helper scripts or task runners, prefer using those do
 
 Use clear, focused commits with descriptive messages.
 
-This template recommends [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/):
+This project follows [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/):
 
-- `feat`
-- `fix`
-- `docs`
-- `refactor`
-- `test`
-- `chore`
-- `ci`
-- `build`
-- `perf`
-- `style`
-- `revert`
+| Prefix     | When to use                                                                                             |
+| ---------- | ------------------------------------------------------------------------------------------------------- |
+| `feat`     | A new feature or user-facing capability                                                                 |
+| `fix`      | A bug fix that corrects incorrect behavior                                                              |
+| `docs`     | Changes to documentation only (README, comments, guides)                                                |
+| `refactor` | Code restructuring that does not change external behavior (renaming, extracting functions, simplifying) |
+| `test`     | Adding, updating, or fixing tests without changing production code                                      |
+| `chore`    | Maintenance tasks that don't affect source code or tests (dependency bumps, config tweaks, .gitignore)  |
+| `ci`       | Changes to CI/CD configuration and scripts (GitHub Actions, workflows, pipelines)                       |
+| `build`    | Changes to the build system or external dependencies (Cargo.toml, build scripts, Makefile)              |
+| `perf`     | A code change that improves performance without altering functionality                                  |
+| `style`    | Formatting-only changes (whitespace, semicolons, linting) with no logic changes                         |
+| `design`   | Changes to visual or UI design assets and layout                                                        |
+| `revert`   | Reverts a previous commit (reference the reverted commit hash in the body)                              |
 
 Example: `feat(auth): add token refresh support`
 
