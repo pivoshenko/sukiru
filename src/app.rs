@@ -29,6 +29,12 @@ pub fn run() -> Result<()> {
                 generate(shell, &mut cmd, bin, &mut std::io::stdout());
                 Ok(())
             }
+            Commands::Remove {
+                skills,
+                dry_run,
+                json,
+            } => crate::commands::remove::run(&skills, dry_run, json),
+            Commands::Show { skill, json } => crate::commands::show::run(&skill, json),
         },
         StartupMode::Home => crate::home::run(&program_name, DEFAULT_CONFIG),
     }

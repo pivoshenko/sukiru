@@ -19,7 +19,7 @@ fn cli_styles() -> Styles {
     styles = cli_styles(),
     about = "sync and maintain local AI skill packs",
     long_about = "An extremely fast AI skills manager, written in Rust.",
-    after_help = "\x1b[1;35mExamples:\x1b[0m\n  \x1b[90mkasetto\x1b[0m\n  \x1b[90mkasetto --config skills.config.yaml --dry-run\x1b[0m\n  \x1b[90mkasetto sync --config https://example.com/skills.config.yaml --verbose\x1b[0m\n  \x1b[90mkasetto list\x1b[0m\n  \x1b[90mkasetto list --json\x1b[0m\n  \x1b[90mkasetto doctor\x1b[0m\n  \x1b[90mkasetto doctor --json\x1b[0m\n  \x1b[90mkasetto self-update\x1b[0m"
+    after_help = "\x1b[1;35mExamples:\x1b[0m\n  \x1b[90mkasetto\x1b[0m\n  \x1b[90mkasetto --config skills.config.yaml --dry-run\x1b[0m\n  \x1b[90mkasetto sync --config https://example.com/skills.config.yaml --verbose\x1b[0m\n  \x1b[90mkasetto list\x1b[0m\n  \x1b[90mkasetto list --json\x1b[0m\n  \x1b[90mkasetto show my-skill\x1b[0m\n  \x1b[90mkasetto remove my-skill\x1b[0m\n  \x1b[90mkasetto doctor\x1b[0m\n  \x1b[90mkasetto doctor --json\x1b[0m\n  \x1b[90mkasetto self-update\x1b[0m"
 )]
 pub struct Cli {
     #[command(flatten)]
@@ -114,5 +114,32 @@ pub enum Commands {
     Completions {
         #[arg(help = "target shell")]
         shell: Shell,
+    },
+    #[command(
+        about = "Remove one or more installed skills",
+        long_about = "Remove installed skills by name. Deletes the skill directory and removes the entry from the manifest.\n\nUse --dry-run to preview which skills would be removed without making changes.",
+        after_help = "\x1b[1;35mExamples:\x1b[0m\n  \x1b[90mkasetto remove my-skill\x1b[0m\n  \x1b[90mkasetto remove skill-a skill-b --dry-run\x1b[0m\n  \x1b[90mkasetto remove my-skill --json\x1b[0m"
+    )]
+    Remove {
+        #[arg(help = "skill name(s) to remove", num_args = 1..)]
+        skills: Vec<String>,
+        #[arg(long)]
+        #[arg(help = "preview actions without changing files")]
+        dry_run: bool,
+        #[arg(long)]
+        #[arg(help = "print output as JSON")]
+        json: bool,
+    },
+    #[command(
+        about = "Show details about an installed skill",
+        long_about = "Display full details for a specific installed skill, including description, source, destination, hash, and last-updated timestamp.",
+        after_help = "\x1b[1;35mExamples:\x1b[0m\n  \x1b[90mkasetto show my-skill\x1b[0m\n  \x1b[90mkasetto show my-skill --json\x1b[0m"
+    )]
+    Show {
+        #[arg(help = "skill name")]
+        skill: String,
+        #[arg(long)]
+        #[arg(help = "print output as JSON")]
+        json: bool,
     },
 }
