@@ -129,7 +129,7 @@ jobs:
           Compress-Archive -Path staging/kasetto.exe, staging/kst.exe -DestinationPath "${{ matrix.archive }}"
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.archive }}
           path: ${{ matrix.archive }}
