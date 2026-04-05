@@ -1,16 +1,19 @@
-fmt:
-    cargo fmt
+format:
+  cargo fmt
 
 lint:
-    cargo clippy -- -D warnings
+  cargo clippy -- -D warnings
 
 test:
-    cargo test
+  cargo test
+
+update:
+  cargo update
 
 build:
-    cargo build --release
+  cargo build --release
 
 changelog:
-    git-cliff --output CHANGELOG.md
+  git-cliff --output CHANGELOG.md
 
-check: fmt lint test build
+check: format lint test build
