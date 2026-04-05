@@ -1,31 +1,41 @@
 use reqwest::blocking::Client;
-use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::error::{err, Result};
-use crate::model::{
-    Config, FailedInstall, Report, SkillEntry, SkillTarget, SkillsField, SourceSpec, State,
-};
+use crate::model::{Config, SkillTarget, SkillsField};
+use crate::source::{auth_env_inline_help, auth_for_request_url, http_fetch_auth_hint, rewrite_gitlab_raw_url};
 
-pub fn load_config_any(config_path: &str) -> Result<(Config, PathBuf, String)> {
+pub(crate) fn load_config_any(config_path: &str) -> Result<(Config, PathBuf, String)> {
     if config_path.starts_with("http://") || config_path.starts_with("https://") {
-        let response = http_client()?
-            .get(config_path)
+        let fetch_url =
+            rewrite_gitlab_raw_url(config_path).unwrap_or_else(|| config_path.to_string());
+        let auth = auth_for_request_url(config_path);
+        let request = auth.apply(http_client()?.get(&fetch_url));
+        let response = request
             .send()
             .map_err(|e| err(format!("failed to fetch remote config: {config_path}: {e}")))?;
+        let status = response.status().as_u16();
         let text = response
-            .error_for_status()
-            .map_err(|e| {
-                err(format!(
-                    "remote config returned non-success status: {config_path}: {e}"
-                ))
-            })?
-            .text()?;
+            .text()
+            .map_err(|e| err(format!("failed to read remote config body for {config_path}: {e}")))?;
+        if !(200..300).contains(&status) {
+            return Err(err(format!(
+                "remote config returned HTTP {status} for {config_path}{}",
+                http_fetch_auth_hint(config_path, status)
+            )));
+        }
+        if text.trim_start().starts_with("<!DOCTYPE") || text.trim_start().starts_with("<html") {
+            return Err(err(format!(
+                "remote config at {config_path} returned a login/HTML page instead of YAML — {}",
+                auth_env_inline_help(config_path)
+            )));
+        }
         let cfg: Config = serde_yaml::from_str(&text)?;
         let cfg_dir = std::env::current_dir()
             .map_err(|e| err(format!("failed to get current directory: {e}")))?;
@@ -33,7 +43,7 @@ pub fn load_config_any(config_path: &str) -> Result<(Config, PathBuf, String)> {
     }
 
     let cfg_abs = fs::canonicalize(config_path)
-        .map_err(|e| err(format!("config not found: {config_path}: {e}")))?;
+        .map_err(|_| err(format!("config not found: {config_path}")))?;
     let cfg_text = fs::read_to_string(&cfg_abs)?;
     let cfg: Config = serde_yaml::from_str(&cfg_text)?;
     let cfg_dir = cfg_abs
@@ -43,51 +53,9 @@ pub fn load_config_any(config_path: &str) -> Result<(Config, PathBuf, String)> {
     Ok((cfg, cfg_dir, cfg_abs.to_string_lossy().to_string()))
 }
 
-pub fn materialize_source(
-    src: &SourceSpec,
-    cfg_dir: &Path,
-    stage: &Path,
-) -> Result<MaterializedSource> {
-    if src.source.contains("://") {
-        let (owner, repo) = parse_github(&src.source)?;
-        let branch = src.branch.clone().unwrap_or_else(|| "main".into());
-        let url = format!("https://codeload.github.com/{owner}/{repo}/tar.gz/refs/heads/{branch}");
-        download_extract(&url, stage).or_else(|_| {
-            if src.branch.is_none() {
-                let url2 =
-                    format!("https://codeload.github.com/{owner}/{repo}/tar.gz/refs/heads/master");
-                download_extract(&url2, stage)
-            } else {
-                Err(err("failed to download source"))
-            }
-        })?;
-        let available = discover(stage)?;
-        Ok(MaterializedSource {
-            source_revision: format!("branch:{branch}"),
-            available,
-            cleanup_dir: Some(stage.to_path_buf()),
-        })
-    } else {
-        let root = resolve_path(cfg_dir, &src.source);
-        let available = discover(&root)?;
-        Ok(MaterializedSource {
-            source_revision: "local".into(),
-            available,
-            cleanup_dir: None,
-        })
-    }
-}
+pub(crate) type TargetSelection = (Vec<(String, PathBuf)>, Vec<BrokenSkill>);
 
-pub struct MaterializedSource {
-    pub source_revision: String,
-    pub available: HashMap<String, PathBuf>,
-    pub cleanup_dir: Option<PathBuf>,
-}
-
-pub type SelectedTarget = (String, PathBuf);
-pub type TargetSelection = (Vec<SelectedTarget>, Vec<BrokenSkill>);
-
-pub fn select_targets(
+pub(crate) fn select_targets(
     sf: &SkillsField,
     available: &HashMap<String, PathBuf>,
 ) -> Result<TargetSelection> {
@@ -138,12 +106,12 @@ pub fn select_targets(
 }
 
 #[derive(Debug)]
-pub struct BrokenSkill {
+pub(crate) struct BrokenSkill {
     pub name: String,
     pub reason: String,
 }
 
-pub fn hash_dir(path: &Path) -> Result<String> {
+pub(crate) fn hash_dir(path: &Path) -> Result<String> {
     let mut files = Vec::new();
     collect_files(path, &mut files)?;
     files.sort();
@@ -156,19 +124,38 @@ pub fn hash_dir(path: &Path) -> Result<String> {
         hasher.update([0]);
         let file = fs::File::open(&f)?;
         let mut reader = BufReader::new(file);
-        loop {
-            let n = reader.read(&mut buf)?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buf[..n]);
-        }
+        sha256_update_reader(&mut reader, &mut hasher, &mut buf)?;
         hasher.update([0]);
     }
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-pub fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
+/// Hash a single file (for MCPs tracking).
+pub(crate) fn hash_file(path: &Path) -> Result<String> {
+    let mut hasher = Sha256::new();
+    let file = fs::File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let mut buf = [0u8; 8192];
+    sha256_update_reader(&mut reader, &mut hasher, &mut buf)?;
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn sha256_update_reader<R: Read>(
+    reader: &mut R,
+    hasher: &mut Sha256,
+    buf: &mut [u8; 8192],
+) -> Result<()> {
+    loop {
+        let n = reader.read(buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(())
+}
+
+pub(crate) fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
     if dst.exists() {
         fs::remove_dir_all(dst)?;
     }
@@ -176,7 +163,7 @@ pub fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
     copy_dir_contents(src, dst)
 }
 
-pub fn resolve_path(base: &Path, raw: &str) -> PathBuf {
+pub(crate) fn resolve_path(base: &Path, raw: &str) -> PathBuf {
     let p = PathBuf::from(
         raw.replace(
             '~',
@@ -192,210 +179,136 @@ pub fn resolve_path(base: &Path, raw: &str) -> PathBuf {
     }
 }
 
-pub fn resolve_destination(base: &Path, cfg: &Config) -> Result<PathBuf> {
+/// Returns one skills path per configured agent.
+/// Falls back to explicit `destination` if set.
+pub(crate) fn resolve_destinations(base: &Path, cfg: &Config) -> Result<Vec<PathBuf>> {
     if let Some(destination) = cfg.destination.as_deref() {
-        return Ok(resolve_path(base, destination));
+        return Ok(vec![resolve_path(base, destination)]);
     }
-
-    if let Some(agent) = cfg.agent {
-        let home = dirs_home()?;
-        return Ok(agent.global_path(&home));
+    let agents = cfg.agents();
+    if agents.is_empty() {
+        return Err(err(
+            "config must define either destination or a supported agent preset",
+        ));
     }
-
-    Err(err(
-        "config must define either destination or a supported agent preset",
-    ))
+    let home = dirs_home()?;
+    Ok(agents.iter().map(|a| a.global_path(&home)).collect())
 }
 
-pub fn dirs_home() -> Result<PathBuf> {
+/// Returns one MCP settings path per configured agent.
+pub(crate) fn resolve_mcp_settings_targets(
+    cfg: &Config,
+) -> Result<Vec<crate::model::McpSettingsTarget>> {
+    let agents = cfg.agents();
+    if agents.is_empty() {
+        return Ok(vec![]);
+    }
+    let home = dirs_home()?;
+    let kasetto_config = dirs_kasetto_config()?;
+    let mut seen = std::collections::HashSet::<PathBuf>::new();
+    let mut out = Vec::new();
+    for a in agents {
+        let t = a.mcp_settings_target(&home, &kasetto_config);
+        if seen.insert(t.path.clone()) {
+            out.push(t);
+        }
+    }
+    Ok(out)
+}
+
+pub(crate) fn dirs_home() -> Result<PathBuf> {
     std::env::var("HOME")
         .map(PathBuf::from)
         .map_err(|_| err("HOME is not set"))
 }
 
-pub fn now_unix() -> u64 {
+/// [XDG Base Directory](https://specifications.freedesktop.org/basedir-spec/latest/) config home:
+/// `XDG_CONFIG_HOME`, or `$HOME/.config` when unset or empty.
+pub(crate) fn dirs_xdg_config_home() -> Result<PathBuf> {
+    match std::env::var("XDG_CONFIG_HOME") {
+        Ok(p) if !p.is_empty() => Ok(PathBuf::from(p)),
+        _ => Ok(dirs_home()?.join(".config")),
+    }
+}
+
+/// Per-user Kasetto configuration directory: `$XDG_CONFIG_HOME/kasetto`.
+pub(crate) fn dirs_kasetto_config() -> Result<PathBuf> {
+    Ok(dirs_xdg_config_home()?.join("kasetto"))
+}
+
+/// [XDG Base Directory](https://specifications.freedesktop.org/basedir-spec/latest/) data home:
+/// `XDG_DATA_HOME`, or `$HOME/.local/share` when unset or empty.
+pub(crate) fn dirs_xdg_data_home() -> Result<PathBuf> {
+    match std::env::var("XDG_DATA_HOME") {
+        Ok(p) if !p.is_empty() => Ok(PathBuf::from(p)),
+        _ => Ok(dirs_home()?.join(".local/share")),
+    }
+}
+
+/// Per-user Kasetto data directory (manifest DB, etc.): `$XDG_DATA_HOME/kasetto`.
+pub(crate) fn dirs_kasetto_data() -> Result<PathBuf> {
+    Ok(dirs_xdg_data_home()?.join("kasetto"))
+}
+
+pub(crate) fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs()
 }
 
-pub fn now_iso() -> String {
-    chrono_like_now()
+pub(crate) fn now_iso() -> String {
+    format!("{}", now_unix())
 }
 
-pub fn load_state() -> Result<State> {
-    let (conn, _) = open_db()?;
-    let last_run = conn
-        .query_row("SELECT value FROM meta WHERE key = 'last_run'", [], |row| {
-            row.get::<_, String>(0)
+/// Wrapper for loading, mutating, and saving agent settings JSON files.
+pub(crate) struct SettingsFile {
+    path: PathBuf,
+    pub data: serde_json::Value,
+}
+
+impl SettingsFile {
+    /// Load an existing JSON file or start with an empty `{}`.
+    pub(crate) fn load(path: &Path) -> Result<Self> {
+        let data = if path.exists() {
+            let text = fs::read_to_string(path)?;
+            serde_json::from_str(&text)
+                .map_err(|e| err(format!("invalid settings JSON {}: {e}", path.display())))?
+        } else {
+            serde_json::json!({})
+        };
+        Ok(Self {
+            path: path.to_path_buf(),
+            data,
         })
-        .optional()?;
-
-    let mut skills = BTreeMap::new();
-    let mut stmt = conn.prepare(
-        "SELECT id, destination, hash, skill, description, source, source_revision, updated_at FROM skills",
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            SkillEntry {
-                destination: row.get(1)?,
-                hash: row.get(2)?,
-                skill: row.get(3)?,
-                description: row.get(4)?,
-                source: row.get(5)?,
-                source_revision: row.get(6)?,
-                updated_at: row.get(7)?,
-            },
-        ))
-    })?;
-
-    for row in rows {
-        let (key, entry) = row?;
-        skills.insert(key, entry);
     }
 
-    Ok(State {
-        version: 1,
-        last_run,
-        skills,
-    })
-}
-
-pub fn save_state(state: &State) -> Result<()> {
-    let (mut conn, _) = open_db()?;
-    persist_state(&mut conn, state)?;
-    Ok(())
-}
-
-pub fn save_report(report: &Report) -> Result<PathBuf> {
-    let (conn, db_path) = open_db()?;
-    conn.execute(
-        "INSERT INTO reports (run_id, created_at, report_json) VALUES (?1, ?2, ?3)
-         ON CONFLICT(run_id) DO UPDATE SET created_at=excluded.created_at, report_json=excluded.report_json",
-        params![&report.run_id, now_unix() as i64, serde_json::to_string(report)?],
-    )?;
-    Ok(db_path)
-}
-
-pub fn manifest_db_path() -> Result<PathBuf> {
-    db_path()
-}
-
-pub fn load_latest_failed_installs() -> Result<Vec<FailedInstall>> {
-    let (conn, _) = open_db()?;
-    let latest_report_json = conn
-        .query_row(
-            "SELECT report_json FROM reports ORDER BY created_at DESC, rowid DESC LIMIT 1",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-
-    let Some(report_json) = latest_report_json else {
-        return Ok(Vec::new());
-    };
-
-    let value: serde_json::Value = serde_json::from_str(&report_json)
-        .map_err(|e| err(format!("failed to parse latest report JSON: {e}")))?;
-    let mut failed = Vec::new();
-
-    if let Some(actions) = value.get("actions").and_then(|v| v.as_array()) {
-        for action in actions {
-            let status = action.get("status").and_then(|v| v.as_str()).unwrap_or("");
-            if status != "broken" {
-                continue;
-            }
-            failed.push(FailedInstall {
-                skill: action
-                    .get("skill")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .to_string(),
-                source: action
-                    .get("source")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .to_string(),
-                reason: action
-                    .get("error")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown reason")
-                    .to_string(),
-            });
-        }
-    }
-
-    Ok(failed)
-}
-
-fn parse_github(url: &str) -> Result<(String, String)> {
-    let p = url.trim_end_matches('/').trim_end_matches(".git");
-    let parts: Vec<_> = p.split('/').collect();
-    if parts.len() < 2 {
-        return Err(err("unsupported github url"));
-    }
-    Ok((
-        parts[parts.len() - 2].to_string(),
-        parts[parts.len() - 1].to_string(),
-    ))
-}
-
-fn discover(root: &Path) -> Result<HashMap<String, PathBuf>> {
-    let mut out = HashMap::new();
-    for base in [root.to_path_buf(), root.join("skills")] {
-        if !base.exists() {
-            continue;
-        }
-        for e in fs::read_dir(base)? {
-            let e = e?;
-            if !e.file_type()?.is_dir() {
-                continue;
-            }
-            let d = e.path();
-            if d.join("SKILL.md").exists() {
-                out.insert(e.file_name().to_string_lossy().to_string(), d);
-            }
-        }
-    }
-    Ok(out)
-}
-
-fn download_extract(url: &str, dst: &Path) -> Result<()> {
-    if dst.exists() {
-        fs::remove_dir_all(dst)?;
-    }
-    fs::create_dir_all(dst)?;
-    let body = http_client()?
-        .get(url)
-        .send()?
-        .error_for_status()?
-        .bytes()?;
-    let gz = flate2::read::GzDecoder::new(body.as_ref());
-    let mut archive = tar::Archive::new(gz);
-    for entry in archive.entries()? {
-        let mut entry = entry?;
-        let p = entry.path()?;
-        let parts: Vec<_> = p.components().collect();
-        if parts.len() < 2 {
-            continue;
-        }
-        let rel = parts
-            .iter()
-            .skip(1)
-            .map(|c| c.as_os_str())
-            .collect::<PathBuf>();
-        if rel.to_string_lossy().contains("..") {
-            return Err(err("unsafe archive path"));
-        }
-        let target = dst.join(rel);
-        if let Some(parent) = target.parent() {
+    /// Write pretty-printed JSON back to disk, creating parent dirs if needed.
+    pub(crate) fn save(&self) -> Result<()> {
+        if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
-        entry.unpack(target)?;
+        fs::write(&self.path, serde_json::to_string_pretty(&self.data)?)?;
+        Ok(())
     }
-    Ok(())
+}
+
+static HTTP_CLIENT: OnceLock<std::result::Result<Client, String>> = OnceLock::new();
+
+/// Shared client: avoids TLS/session setup on every asset or config fetch.
+pub(crate) fn http_client() -> Result<Client> {
+    let built = HTTP_CLIENT.get_or_init(|| {
+        Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .user_agent(format!("kasetto/{}", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|e| e.to_string())
+    });
+    match built {
+        Ok(c) => Ok(c.clone()),
+        Err(e) => Err(err(format!("failed to build HTTP client: {e}"))),
+    }
 }
 
 fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
@@ -434,135 +347,11 @@ fn copy_dir_contents(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-fn db_path() -> Result<PathBuf> {
-    Ok(dirs_home()?.join(".kst/manifest.db"))
-}
-
-fn open_db() -> Result<(Connection, PathBuf)> {
-    let path = db_path()?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let conn = Connection::open(&path)?;
-    init_db(&conn)?;
-    Ok((conn, path))
-}
-
-fn init_db(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
-        r#"
-        PRAGMA journal_mode=WAL;
-        PRAGMA synchronous=NORMAL;
-        PRAGMA cache_size=-8000;
-        PRAGMA temp_store=MEMORY;
-        CREATE TABLE IF NOT EXISTS meta (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS skills (
-            id TEXT PRIMARY KEY,
-            destination TEXT NOT NULL,
-            hash TEXT NOT NULL,
-            skill TEXT NOT NULL,
-            description TEXT NOT NULL DEFAULT '',
-            source TEXT NOT NULL,
-            source_revision TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_skills_source ON skills(source);
-        CREATE INDEX IF NOT EXISTS idx_skills_destination ON skills(destination);
-        CREATE TABLE IF NOT EXISTS reports (
-            run_id TEXT PRIMARY KEY,
-            created_at INTEGER NOT NULL,
-            report_json TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports(created_at);
-        "#,
-    )?;
-    Ok(())
-}
-
-fn persist_state(conn: &mut Connection, state: &State) -> Result<()> {
-    let tx = conn.transaction()?;
-    let mut existing_ids = HashSet::new();
-    {
-        let mut stmt = tx.prepare("SELECT id FROM skills")?;
-        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-        for row in rows {
-            existing_ids.insert(row?);
-        }
-    }
-    let mut current_ids = HashSet::new();
-
-    for (id, entry) in &state.skills {
-        current_ids.insert(id.clone());
-        tx.execute(
-            "INSERT INTO skills (id, destination, hash, skill, description, source, source_revision, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-             ON CONFLICT(id) DO UPDATE SET
-               destination=excluded.destination,
-               hash=excluded.hash,
-               skill=excluded.skill,
-               description=excluded.description,
-               source=excluded.source,
-               source_revision=excluded.source_revision,
-               updated_at=excluded.updated_at",
-            params![
-                id,
-                &entry.destination,
-                &entry.hash,
-                &entry.skill,
-                &entry.description,
-                &entry.source,
-                &entry.source_revision,
-                &entry.updated_at
-            ],
-        )?;
-    }
-
-    for stale_id in existing_ids.difference(&current_ids) {
-        tx.execute("DELETE FROM skills WHERE id = ?1", params![stale_id])?;
-    }
-
-    match &state.last_run {
-        Some(last_run) => {
-            tx.execute(
-                "INSERT INTO meta (key, value) VALUES ('last_run', ?1)
-                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                params![last_run],
-            )?;
-        }
-        None => {
-            tx.execute("DELETE FROM meta WHERE key = 'last_run'", [])?;
-        }
-    }
-
-    tx.commit()?;
-    Ok(())
-}
-
-fn chrono_like_now() -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    format!("{}", now)
-}
-
-pub fn http_client() -> Result<Client> {
-    Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(30))
-        .user_agent(format!("kasetto/{}", env!("CARGO_PKG_VERSION")))
-        .build()
-        .map_err(|e| err(format!("failed to build HTTP client: {e}")))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Agent, Config, SkillTarget, SkillsField, SourceSpec};
+    use crate::model::{Agent, AgentField, Config, SkillTarget, SkillsField};
+    use std::path::Path;
 
     fn temp_dir(prefix: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -570,45 +359,6 @@ mod tests {
             .expect("clock")
             .as_nanos();
         std::env::temp_dir().join(format!("{prefix}-{}-{nonce}", std::process::id()))
-    }
-
-    #[test]
-    fn parse_github_works_for_https() {
-        let (owner, repo) = parse_github("https://github.com/openai/skills").expect("parse");
-        assert_eq!(owner, "openai");
-        assert_eq!(repo, "skills");
-    }
-
-    #[test]
-    fn parse_github_trims_git_and_trailing_slash() {
-        let (owner, repo) =
-            parse_github("https://github.com/pivoshenko/kasetto.git/").expect("parse");
-        assert_eq!(owner, "pivoshenko");
-        assert_eq!(repo, "kasetto");
-    }
-
-    #[test]
-    fn local_materialize_does_not_set_cleanup_dir() {
-        let root = temp_dir("kasetto-local-src");
-        let skill_dir = root.join("demo-skill");
-        fs::create_dir_all(&skill_dir).expect("create dirs");
-        fs::write(skill_dir.join("SKILL.md"), "# Demo\n\nDesc\n").expect("write skill");
-
-        let src = SourceSpec {
-            source: root.to_string_lossy().to_string(),
-            branch: None,
-            skills: SkillsField::Wildcard("*".to_string()),
-        };
-        let stage = temp_dir("kasetto-stage");
-        let materialized =
-            materialize_source(&src, Path::new("/"), &stage).expect("materialize local");
-
-        assert!(materialized.cleanup_dir.is_none());
-        assert!(materialized.available.contains_key("demo-skill"));
-        assert!(root.exists());
-
-        let _ = fs::remove_dir_all(&root);
-        let _ = fs::remove_dir_all(&stage);
     }
 
     #[test]
@@ -656,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_global_paths_cover_supported_presets() {
+    fn agent_paths_cover_supported_presets() {
         let home = Path::new("/tmp/kasetto-home");
 
         assert_eq!(Agent::Codex.global_path(home), home.join(".codex/skills"));
@@ -683,13 +433,75 @@ mod tests {
     }
 
     #[test]
-    fn config_agent_parses_hyphenated_names_and_legacy_aliases() {
+    fn config_agent_parses_hyphenated_names() {
         let hyphenated: Config =
             serde_yaml::from_str("agent: command-code\nskills: []\n").expect("parse config");
-        assert_eq!(hyphenated.agent, Some(Agent::CommandCode));
+        assert_eq!(hyphenated.agent, Some(AgentField::One(Agent::CommandCode)));
 
-        let legacy_alias: Config =
-            serde_yaml::from_str("agent: claude\nskills: []\n").expect("parse config");
-        assert_eq!(legacy_alias.agent, Some(Agent::ClaudeCode));
+        let claude_code: Config =
+            serde_yaml::from_str("agent: claude-code\nskills: []\n").expect("parse config");
+        assert_eq!(claude_code.agent, Some(AgentField::One(Agent::ClaudeCode)));
+    }
+
+    #[test]
+    fn config_agent_parses_multi_agent_list() {
+        let multi: Config =
+            serde_yaml::from_str("agent:\n  - claude-code\n  - cursor\nskills: []\n")
+                .expect("parse config");
+        assert_eq!(
+            multi.agent,
+            Some(AgentField::Many(vec![Agent::ClaudeCode, Agent::Cursor]))
+        );
+        assert_eq!(multi.agents(), vec![Agent::ClaudeCode, Agent::Cursor]);
+    }
+
+    #[test]
+    fn settings_file_load_creates_empty_for_missing_file() {
+        let dir = temp_dir("kasetto-sf-missing");
+        let path = dir.join("nonexistent.json");
+        let sf = SettingsFile::load(&path).expect("load");
+        assert_eq!(sf.data, serde_json::json!({}));
+    }
+
+    #[test]
+    fn settings_file_load_parses_existing_json() {
+        let dir = temp_dir("kasetto-sf-parse");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        fs::write(&path, r#"{"mcpServers":{}}"#).unwrap();
+
+        let sf = SettingsFile::load(&path).expect("load");
+        assert!(sf.data["mcpServers"].is_object());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn settings_file_save_creates_parent_dirs() {
+        let dir = temp_dir("kasetto-sf-save");
+        let nested = dir.join("deep").join("path").join("settings.json");
+
+        let mut sf = SettingsFile::load(&nested).expect("load");
+        sf.data["key"] = serde_json::json!("value");
+        sf.save().expect("save");
+
+        let text = fs::read_to_string(&nested).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(val["key"], "value");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn settings_file_load_rejects_invalid_json() {
+        let dir = temp_dir("kasetto-sf-invalid");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("bad.json");
+        fs::write(&path, "not valid json {{{").unwrap();
+
+        let result = SettingsFile::load(&path);
+        assert!(result.is_err());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

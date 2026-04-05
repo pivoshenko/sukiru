@@ -35,6 +35,7 @@ serde_yaml = "0.9"
 sha2 = "0.10"
 shlex = "1"
 tar = "0.4"
+toml = "0.8"
 unicode-width = "0.2"
 
 [dev-dependencies]

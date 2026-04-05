@@ -4,13 +4,16 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use crate::colors::{
+    CHIP_ERROR, CHIP_NEUTRAL, CHIP_SUCCESS, CHIP_WARNING, CLEAR_LINE, ERROR, RESET, SUCCESS,
+};
 use crate::error::Result;
 
-pub fn animations_enabled(quiet: bool, as_json: bool, plain: bool) -> bool {
+pub(crate) fn animations_enabled(quiet: bool, as_json: bool, plain: bool) -> bool {
     !quiet && !as_json && !plain && std::io::stderr().is_terminal()
 }
 
-pub fn with_spinner<T, F>(
+pub(crate) fn with_spinner<T, F>(
     enabled: bool,
     plain: bool,
     label: impl Into<String>,
@@ -35,7 +38,8 @@ where
         while !stop_flag.load(Ordering::Relaxed) {
             let _ = write!(
                 stderr,
-                "\r\x1b[2K{} {}",
+                "{}{} {}",
+                CLEAR_LINE,
                 frames[idx % frames.len()],
                 thread_label
             );
@@ -58,9 +62,13 @@ where
             let _ = writeln!(stderr, "{} {}", symbol, label);
         }
     } else if result.is_ok() {
-        let _ = writeln!(stderr, "\r\x1b[2K\x1b[32m{}\x1b[0m {}", symbol, ok_label);
+        let _ = writeln!(
+            stderr,
+            "{}{}{}{} {}",
+            CLEAR_LINE, SUCCESS, symbol, RESET, ok_label
+        );
     } else {
-        let _ = writeln!(stderr, "\r\x1b[2K\x1b[31m{}\x1b[0m {}", symbol, label);
+        let _ = writeln!(stderr, "{}{}{}{} {}", CLEAR_LINE, ERROR, symbol, RESET, label);
     }
     let _ = stderr.flush();
 
@@ -80,7 +88,7 @@ fn synced_label(label: &str) -> String {
     label.to_string()
 }
 
-pub fn status_chip(status: &str, plain: bool) -> String {
+pub(crate) fn status_chip(status: &str, plain: bool) -> String {
     if plain {
         return match status {
             "broken" | "source_error" => "[X]".to_string(),
@@ -88,13 +96,13 @@ pub fn status_chip(status: &str, plain: bool) -> String {
         };
     }
     match status {
-        "installed" | "updated" | "removed" => format!("\x1b[30;42m {} \x1b[0m", status),
-        "unchanged" => format!("\x1b[30;47m {} \x1b[0m", status),
+        "installed" | "updated" | "removed" => format!("{} {status} {}", CHIP_SUCCESS, RESET),
+        "unchanged" => format!("{} {status} {}", CHIP_NEUTRAL, RESET),
         "would_install" | "would_update" | "would_remove" => {
-            format!("\x1b[30;43m {} \x1b[0m", status)
+            format!("{} {status} {}", CHIP_WARNING, RESET)
         }
-        "broken" | "source_error" => "\x1b[30;41m x \x1b[0m".to_string(),
-        _ => format!("\x1b[30;41m {} \x1b[0m", status),
+        "broken" | "source_error" => format!("{} x {}", CHIP_ERROR, RESET),
+        _ => format!("{} {status} {}", CHIP_ERROR, RESET),
     }
 }
 
